@@ -107,19 +107,8 @@ struct ParserData
     std::unordered_map<Transition, int> tran2id;
 
     ParserData(std::vector<Example> examples, std::string embeddings_filename, int embedding_size = 50);
-    int tran2id2(const Transition& tran);
 };
 
-int ParserData::tran2id2(const Transition& tran) {
-    if (tran.type == TransitionType::shift) {
-        return 0;
-    } else if (tran.type == TransitionType::left) {
-        return tran.label + 1;
-    } else {
-        return tran.label + 1 + label_embeddings.id2tok.size();
-    }
-
-}
 
 ParserData::ParserData(std::vector<Example> examples, std::string embeddings_filename, int embedding_size) : word_embeddings(extract_unique(examples, [](const auto &x) { return x.word; }), embedding_size),
                                                                                                              label_embeddings(extract_unique(examples, [](const auto &x) { return x.label; }), embedding_size),
@@ -185,7 +174,8 @@ Optional<ClassifierInstance> Parser::get_instance(bool ask_oracle)
     if (ask_oracle)
     {
         auto oracle = get_oracle();
-        if (!oracle) {
+        if (!oracle)
+        {
             return folly::none;
         }
         result.trans_id = data->tran2id[*oracle];
@@ -307,23 +297,26 @@ struct DataProvider
     int step_id = 0;
     ClassifierInstance get_next()
     {
-        while (true) {
-        if (!parser) {
-            parser = std::make_unique<Parser>(pdata, &(*examples)[example_id]);
-        }
-        if (step_id >= 2 * (*examples)[example_id].word.size()-1)
+        while (true)
         {
-            example_id = (example_id + 1) % examples->size();
-            step_id = 0;
-            parser = std::make_unique<Parser>(pdata, &(*examples)[example_id]);
-        }
+            if (!parser)
+            {
+                parser = std::make_unique<Parser>(pdata, &(*examples)[example_id]);
+            }
+            if (step_id >= 2 * (*examples)[example_id].word.size() - 1)
+            {
+                example_id = (example_id + 1) % examples->size();
+                step_id = 0;
+                parser = std::make_unique<Parser>(pdata, &(*examples)[example_id]);
+            }
 
-        step_id += 1;
-        auto result = parser->get_instance(true);
-        if (result) {
-            parser->step(pdata->id2tran[result->trans_id]);
-            return *result;
-        }
+            step_id += 1;
+            auto result = parser->get_instance(true);
+            if (result)
+            {
+                parser->step(pdata->id2tran[result->trans_id]);
+                return *result;
+            }
         }
     }
 };
@@ -374,27 +367,24 @@ void print(const caffe2::Blob *blob, const std::string &name)
               << std::endl;
 }
 
-void prep_embedding(caffe2::Workspace& workspace, caffe2::NetDef& model, const std::string& input, EmbeddingData* data, const std::string output, 
-    std::vector<caffe2::OperatorDef *>& gradient_ops) {
-    const auto emb_name = input+"_embedding";
+void prep_embedding(caffe2::Workspace &workspace, caffe2::NetDef &model, const std::string &input, EmbeddingData *data, const std::string output,
+                    std::vector<caffe2::OperatorDef *> &gradient_ops)
+{
+    const auto emb_name = input + "_embedding";
     const auto gathered_name = input + "_gathered";
     auto blob = workspace.CreateBlob(emb_name);
     auto tensor = workspace.GetBlob(emb_name)->GetMutable<caffe2::TensorCPU>();
     tensor->ResizeLike(data->tensor);
     tensor->ShareData(data->tensor);
 
-       {
+    {
         auto op = model.add_op();
         op->set_type("Gather");
         op->add_input(emb_name);
         op->add_input(input);
         op->add_output(gathered_name);
-//        auto arg1 = op->add_arg();
- //       arg1->set_name("dense_gradient");
-  //      arg1->set_i(1);
- 
         gradient_ops.push_back(op);
-    } 
+    }
 
     {
         auto op = model.add_op();
@@ -402,26 +392,36 @@ void prep_embedding(caffe2::Workspace& workspace, caffe2::NetDef& model, const s
         op->add_input(gathered_name);
         op->add_output(output);
         gradient_ops.push_back(op);
-    } 
-
+    }
 }
 
-void updateStep(caffe2::NetDef& predictModel, const std::string name) {
+void updateStep(caffe2::NetDef &predictModel, const std::string &name)
+{
     auto op = predictModel.add_op();
     op->set_type("WeightedSum");
     op->add_input(name);
     op->add_input("ONE");
-    op->add_input(name+"_grad");
+    op->add_input(name + "_grad");
     op->add_input("LR");
     op->add_output(name);
 }
 
-void model(caffe2::Workspace& workspace, ParserData* pdata, DataProvider* prov, int batch_size = 32)
+void updateStep2(caffe2::NetDef &predictModel, const std::string &name, const std::string &indices, const std::string &from)
+{
+    auto op = predictModel.add_op();
+    op->set_type("ScatterWeightedSum");
+    op->add_input(name);
+    op->add_input("ONE");
+    op->add_input(indices);
+    op->add_input(from);
+    op->add_input("LR");
+    op->add_output(name);
+}
+
+void model(caffe2::Workspace &workspace, ParserData *pdata, DataProvider *prov, int batch_size = 32)
 {
     caffe2::NetDef initModel;
     initModel.set_name("init");
-
-
 
     {
         std::vector<int> data(batch_size);
@@ -431,17 +431,16 @@ void model(caffe2::Workspace& workspace, ParserData* pdata, DataProvider* prov, 
         tensor->ShareData(value);
     }
 
-
-     {
-        std::vector<float> data(batch_size*6);
+    {
+        std::vector<float> data(batch_size * 6);
         auto tensor = workspace.CreateBlob("word_ids")->GetMutable<caffe2::TensorCPU>();
         auto value = caffe2::TensorCPU({batch_size, 6}, data, NULL);
         tensor->ResizeLike(value);
         tensor->ShareData(value);
     }
 
-        {
-        std::vector<float> data(batch_size*6);
+    {
+        std::vector<float> data(batch_size * 6);
         auto tensor = workspace.CreateBlob("pos_ids")->GetMutable<caffe2::TensorCPU>();
         auto value = caffe2::TensorCPU({batch_size, 6}, data, NULL);
         tensor->ResizeLike(value);
@@ -475,13 +474,8 @@ void model(caffe2::Workspace& workspace, ParserData* pdata, DataProvider* prov, 
     prep_FC_data(initModel, "_1", n_features, n_hidden);
     prep_FC_data(initModel, "_2", n_hidden, n_output);
 
-
     // store gradients
     std::vector<caffe2::OperatorDef *> gradient_ops;
-
-
-
-    //workspace.CreateBlob("label_ids");
 
     // need to use Gather, then Flatten, then Concat
 
@@ -509,7 +503,6 @@ void model(caffe2::Workspace& workspace, ParserData* pdata, DataProvider* prov, 
         op->add_output("FC1");
         gradient_ops.push_back(op);
     }
-
 
     {
         auto op = predictModel.add_op();
@@ -570,47 +563,45 @@ void model(caffe2::Workspace& workspace, ParserData* pdata, DataProvider* prov, 
         op->set_is_gradient_op(true);
     }
 
-  {
-    auto op = initModel.add_op();
-    op->set_type("ConstantFill");
-    auto arg1 = op->add_arg();
-    arg1->set_name("shape");
-    arg1->add_ints(1);
-    auto arg2 = op->add_arg();
-    arg2->set_name("value");
-    arg2->set_f(1.0);
-    op->add_output("ONE");
-  }
+    {
+        auto op = initModel.add_op();
+        op->set_type("ConstantFill");
+        auto arg1 = op->add_arg();
+        arg1->set_name("shape");
+        arg1->add_ints(1);
+        auto arg2 = op->add_arg();
+        arg2->set_name("value");
+        arg2->set_f(1.0);
+        op->add_output("ONE");
+    }
 
+    {
+        auto op = predictModel.add_op();
+        op->set_type("LearningRate");
+        auto arg1 = op->add_arg();
+        arg1->set_name("base_lr");
+        arg1->set_f(-0.1);
+        auto arg2 = op->add_arg();
+        arg2->set_name("policy");
+        arg2->set_s("step");
+        auto arg3 = op->add_arg();
+        arg3->set_name("stepsize");
+        arg3->set_i(100);
+        auto arg4 = op->add_arg();
+        arg4->set_name("gamma");
+        arg4->set_f(0.9);
+        op->add_input("ITER");
+        op->add_output("LR");
+    }
 
+    {
+        auto op = predictModel.add_op();
+        op->set_type("Iter");
+        op->add_input("ITER");
+        op->add_output("ITER");
+    }
 
-  {
-    auto op = predictModel.add_op();
-    op->set_type("LearningRate");
-    auto arg1 = op->add_arg();
-    arg1->set_name("base_lr");
-    arg1->set_f(-0.1);
-    auto arg2 = op->add_arg();
-    arg2->set_name("policy");
-    arg2->set_s("step");
-    auto arg3 = op->add_arg();
-    arg3->set_name("stepsize");
-    arg3->set_i(20);
-    auto arg4 = op->add_arg();
-    arg4->set_name("gamma");
-    arg4->set_f(0.9);
-    op->add_input("ITER");
-    op->add_output("LR");
-}
-
-  {
-    auto op = predictModel.add_op();
-    op->set_type("Iter");
-    op->add_input("ITER");
-    op->add_output("ITER");
-}
-
-        std::cout << "test1" << std::endl;
+    std::cout << "test1" << std::endl;
 
     std::reverse(gradient_ops.begin(), gradient_ops.end());
     for (auto op : gradient_ops)
@@ -621,7 +612,8 @@ void model(caffe2::Workspace& workspace, ParserData* pdata, DataProvider* prov, 
             output[i].dense_ = op->output(i) + "_grad";
         }
         caffe2::GradientOpsMeta meta = GetGradientForOp(*op, output);
-        if (meta.ops_.size() == 0) {
+        if (meta.ops_.size() == 0)
+        {
             std::cout << output.size() << " " << op->type() << " " << meta.g_input_.size() << std::endl;
             continue;
             //will fail here
@@ -638,10 +630,8 @@ void model(caffe2::Workspace& workspace, ParserData* pdata, DataProvider* prov, 
     updateStep(predictModel, "W_2");
     updateStep(predictModel, "B_1");
     updateStep(predictModel, "B_2");
-    //updateStep(predictModel, "word_ids_embedding");
-    //updateStep(predictModel, "pos_ids_embedding");
-    
-
+    updateStep2(predictModel, "word_ids_embedding", "word_ids", "word_ids_gathered_grad");
+    updateStep2(predictModel, "pos_ids_embedding", "pos_ids", "pos_ids_gathered_grad");
 
     CAFFE_ENFORCE(workspace.RunNetOnce(initModel));
 
@@ -651,46 +641,49 @@ void model(caffe2::Workspace& workspace, ParserData* pdata, DataProvider* prov, 
     std::cout << "created" << std::endl;
     // let's finally do training now
 
-    for (int i=0; i < 500; i++) {
-        
+    for (int i = 0; i < 5000; i++)
+    {
+
         // collect training_data
         std::vector<int> word_ids;
         std::vector<int> pos_ids;
         std::vector<int> labels;
-        for (int j=0; j<batch_size; j++) {
+        for (int j = 0; j < batch_size; j++)
+        {
             auto instance = prov->get_next();
             labels.push_back(instance.trans_id);
             word_ids.insert(end(word_ids), begin(instance.word_ids), end(instance.word_ids));
             pos_ids.insert(end(pos_ids), begin(instance.pos_ids), end(instance.pos_ids));
         }
 
+        {
+            auto tensor = workspace.GetBlob("label")->GetMutable<caffe2::TensorCPU>();
+            auto value = caffe2::TensorCPU({batch_size}, labels, NULL);
+            tensor->ShareData(value);
+        }
 
         {
-        auto tensor = workspace.GetBlob("label")->GetMutable<caffe2::TensorCPU>();
-        auto value = caffe2::TensorCPU({batch_size}, labels, NULL);
-        tensor->ShareData(value);
+            auto tensor = workspace.GetBlob("word_ids")->GetMutable<caffe2::TensorCPU>();
+            auto value = caffe2::TensorCPU({batch_size, 6}, word_ids, NULL);
+            tensor->ShareData(value);
         }
 
-         {
-        auto tensor = workspace.GetBlob("word_ids")->GetMutable<caffe2::TensorCPU>();
-        auto value = caffe2::TensorCPU({batch_size, 6}, word_ids, NULL);
-        tensor->ShareData(value);
-        }
- 
         {
-        auto tensor = workspace.GetBlob("pos_ids")->GetMutable<caffe2::TensorCPU>();
-        auto value = caffe2::TensorCPU({batch_size, 6}, pos_ids, NULL);
-        tensor->ShareData(value);
+            auto tensor = workspace.GetBlob("pos_ids")->GetMutable<caffe2::TensorCPU>();
+            auto value = caffe2::TensorCPU({batch_size, 6}, pos_ids, NULL);
+            tensor->ShareData(value);
         }
-
 
         CAFFE_ENFORCE(workspace.RunNet(predictModel.name()));
-        std::cout << "step: " << i << ": ";
-        print(workspace.GetBlob("loss"), "loss");
+        if (i % 50 == 1)
+        {
+            std::cout << "step: " << i << ": ";
+            print(workspace.GetBlob("loss"), "loss");
+            print(workspace.GetBlob("LR"), "LR");
+            std::cout << pdata->pos_embeddings.embeddings.sum();
+        }
     }
 }
-
- 
 
 int run()
 {
@@ -713,7 +706,6 @@ int run()
     //     std::cout << p.ex->word[arc.head] << "->" << p.ex->word[arc.dep] << std::endl;
     // }
     // std::cout << "Stack" << p.stack << " Buf: " << p.buf << std::endl;
-
 
     DataProvider dprov{&pdata, &res};
     model(workspace, &pdata, &dprov);
