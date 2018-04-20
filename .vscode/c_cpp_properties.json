@@ -1,0 +1,29 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}",
+                "/home/linuxbrew/.linuxbrew/include",
+                "/home/linuxbrew/.linuxbrew/include/c++/5.5.0",
+                "/home/linuxbrew/.linuxbrew/include/eigen3"
+            ],
+            "defines": [],
+            "intelliSenseMode": "clang-x64",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "/home/linuxbrew/.linuxbrew/include",
+                    "/home/linuxbrew/.linuxbrew/include/c++/5.5.0",
+                    "/home/linuxbrew/.linuxbrew/include/eigen3"
+                ],
+                "limitSymbolsToIncludedHeaders": true,
+                "databaseFilename": ""
+            },
+            "compilerPath": "/home/linuxbrew/.linuxbrew/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++14"
+        }
+    ],
+    "version": 3
+}
